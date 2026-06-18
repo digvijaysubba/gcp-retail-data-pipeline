@@ -1,12 +1,16 @@
+# Python virtual environment and cache (big / machine-specific — never commit)
+venv/
+__pycache__/
+ 
 # Airflow runtime files (don't belong in version control)
 logs/
-
+ 
 # Machine-specific generated config
 config/airflow.cfg
-
+ 
 # Local environment file
 .env
-
+ 
 # Secrets — NEVER commit credentials or keys
 *.json
 *-key.json
