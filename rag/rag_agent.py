@@ -5,6 +5,7 @@
 # Gemini to answer using only those facts.
 
 from google import genai
+from google.cloud import bigquery
 import chromadb
 
 PROJECT = "retail-pipeline-499301"
@@ -15,6 +16,9 @@ CHAT_MODEL = "gemini-2.5-flash"        # Vertex AI chat model
 # Connect to Vertex AI (uses keyless gcloud login — no key file).
 client = genai.Client(vertexai=True, project=PROJECT, location=LOCATION)
 
+# Connect to BigQuery (same keyless gcloud login).
+bq = bigquery.Client(project=PROJECT)
+
 
 def embed(text):
     """Turn a piece of text into a vector (list of numbers) using Vertex AI."""
@@ -22,33 +26,51 @@ def embed(text):
     return result.embeddings[0].values
 
 
-#1. The knowledge base: facts about the grocery business
-knowledge_base = [
-    # Total sales per department (from the BigQuery dept_daily_sales table)
-    "The meat department has about $1,032 in total sales — the highest of all departments.",
-    "The household department has about $1,006 in total sales.",
-    "The pantry department has about $845 in total sales.",
-    "The beverages department has about $735 in total sales.",
-    "The frozen department has about $693 in total sales.",
-    "The snacks department has about $581 in total sales.",
-    "The dairy department has about $453 in total sales.",
-    "The personal care department has about $446 in total sales.",
-    "The bakery department has about $429 in total sales.",
-    "The produce department has about $179 in total sales — the lowest of all departments.",
-    # What each department sells
-    "The dairy department sells milk, yogurt, cheese, butter, and eggs.",
-    "The bakery department sells sourdough, bagels, croissants, and whole wheat bread.",
-    "The pantry department sells olive oil, pasta, marinara sauce, rice, and beans.",
-    "The departments tracked are: produce, dairy, bakery, beverages, snacks, "
-    "frozen, meat, pantry, household, and personal care.",
-    "Daily sales are summarized by department in a BigQuery table called dept_daily_sales.",
-]
+# 1. The knowledge base: pulled LIVE from BigQuery 
+def load_facts_from_bigquery():
+    """Query BigQuery and turn each department's totals into a fact sentence."""
+    print("Fetching the latest sales numbers from BigQuery...")
+    query = """
+        SELECT department, ROUND(SUM(total_sales), 2) AS total
+        FROM `retail-pipeline-499301.retail.dept_daily_sales`
+        GROUP BY department
+        ORDER BY total DESC
+    """
+    rows = list(bq.query(query).result())
 
-#2. Set up ChromaDB (a local vector store)
+    # Identify the top and bottom seller so the facts include rankings.
+    top = rows[0]
+    bottom = rows[-1]
+
+    facts = []
+    for row in rows:
+        line = f"The {row['department']} department has about ${row['total']:.2f} in total sales"
+        if row['department'] == top['department']:
+            line += " — the highest of all departments."
+        elif row['department'] == bottom['department']:
+            line += " — the lowest of all departments."
+        else:
+            line += "."
+        facts.append(line)
+
+    # A few static, business-context facts that aren't in the table.
+    facts += [
+        "The dairy department sells milk, yogurt, cheese, butter, and eggs.",
+        "The bakery department sells sourdough, bagels, croissants, and whole wheat bread.",
+        "The pantry department sells olive oil, pasta, marinara sauce, rice, and beans.",
+        "Daily sales are summarized by department in a BigQuery table called dept_daily_sales.",
+    ]
+    return facts
+
+
+knowledge_base = load_facts_from_bigquery()
+print(f"Loaded {len(knowledge_base)} facts from BigQuery.\n")
+
+# 2. Set up ChromaDB (a local vector store) 
 chroma = chromadb.Client()
 collection = chroma.get_or_create_collection(name="grocery_kb")
 
-#3. Embed every fact and store it in the vector store 
+# 3. Embed every fact and store it in the vector store
 print("Embedding the knowledge base (this takes a few seconds)...")
 collection.add(
     ids=[f"doc{i}" for i in range(len(knowledge_base))],
@@ -77,12 +99,12 @@ def answer(question):
     return response.text
 
 
-# 4. Try a couple of example questions ---
+#4. Try a couple of example questions
 for q in ["Which department sells the most?", "What does the dairy department sell?"]:
     print(f"Q: {q}")
     print(f"A: {answer(q)}\n")
 
-# 5. Now ask your own questions ---
+#5. Now ask your own questions
 print("Ask your own questions (type 'quit' to exit):")
 while True:
     user_q = input("You: ")
