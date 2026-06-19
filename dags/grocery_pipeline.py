@@ -1,53 +1,89 @@
-# grocery_pipeline.py
-# A simple Airflow pipeline (DAG) with three steps that run in order:
-#   load  ->  transform  ->  quality_check
-# For now each step just prints a message. Later we'll make them
-# actually run the BigQuery load + transform.
+"""
+grocery_pipeline.py
 
-from airflow.sdk import DAG
-from airflow.providers.standard.operators.python import PythonOperator
-import pendulum
+A daily Airflow pipeline that:
+  1. Loads grocery_orders.csv from Cloud Storage into BigQuery (raw table).
+  2. Rebuilds the dept_daily_sales analytics table (partitioned + clustered).
+  3. Runs a data-quality check: fail the DAG if grocery_orders is empty.
+"""
 
+from datetime import datetime
 
-# --- The three jobs the robot will do ---
+from airflow import DAG
+from airflow.providers.google.cloud.transfers.gcs_to_bigquery import (
+    GCSToBigQueryOperator,
+)
+from airflow.providers.google.cloud.operators.bigquery import (
+    BigQueryInsertJobOperator,
+    BigQueryCheckOperator,
+)
 
-def load_data():
-    print("Step 1: Loading grocery orders from Cloud Storage into BigQuery...")
+# --- Project settings ---
+PROJECT_ID = "retail-pipeline-499301"
+DATASET = "retail"
+BUCKET = "reatil_pipeline_digvijay_2026"
+CSV_OBJECT = "grocery_orders.csv"
+RAW_TABLE = "grocery_orders"
+ANALYTICS_TABLE = "dept_daily_sales"
 
+# --- SQL: rebuild the partitioned + clustered analytics table ---
+TRANSFORM_SQL = f"""
+CREATE OR REPLACE TABLE `{PROJECT_ID}.{DATASET}.{ANALYTICS_TABLE}`
+PARTITION BY order_date
+CLUSTER BY department AS
+SELECT
+  order_date,
+  department,
+  SUM(quantity * unit_price) AS total_sales,
+  SUM(quantity) AS total_units
+FROM `{PROJECT_ID}.{DATASET}.{RAW_TABLE}`
+GROUP BY order_date, department;
+"""
 
-def transform_data():
-    print("Step 2: Building the dept_daily_sales summary table...")
-
-
-def quality_check():
-    print("Step 3: Checking the data (no missing departments, rows > 0)...")
-    print("Quality check passed!")
-
-
-# --- The pipeline definition ---
+# --- Quality check: fail if the raw table is empty ---
+QUALITY_SQL = f"""
+SELECT COUNT(*) FROM `{PROJECT_ID}.{DATASET}.{RAW_TABLE}`
+"""
 
 with DAG(
-    dag_id="grocery_pipeline",                       # the name shown in Airflow
-    schedule="@daily",                               # run once a day
-    start_date=pendulum.datetime(2026, 6, 1, tz="UTC"),  # when it's allowed to start
-    catchup=False,                                   # don't run for past dates
-    tags=["retail"],                                 # a label to find it easily
+    dag_id="grocery_pipeline",
+    description="Load CSV to BigQuery, rebuild analytics table, run quality check.",
+    start_date=datetime(2026, 1, 1),
+    schedule="@daily",
+    catchup=False,
+    tags=["grocery", "bigquery", "gcp"],
 ) as dag:
 
-    load = PythonOperator(
+    # Step 1: load the CSV from Cloud Storage into BigQuery.
+    load_data = GCSToBigQueryOperator(
         task_id="load_data",
-        python_callable=load_data,
+        bucket=BUCKET,
+        source_objects=[CSV_OBJECT],
+        destination_project_dataset_table=f"{PROJECT_ID}.{DATASET}.{RAW_TABLE}",
+        source_format="CSV",
+        skip_leading_rows=1,
+        write_disposition="WRITE_TRUNCATE",  # replace the table each run
+        autodetect=True,                     # infer schema from the CSV header
+        project_id=PROJECT_ID,
     )
 
-    transform = PythonOperator(
+    # Step 2: rebuild the partitioned + clustered analytics table.
+    transform_data = BigQueryInsertJobOperator(
         task_id="transform_data",
-        python_callable=transform_data,
+        configuration={
+            "query": {
+                "query": TRANSFORM_SQL,
+                "useLegacySql": False,
+            }
+        },
+        project_id=PROJECT_ID,
     )
 
-    check = PythonOperator(
+    # Step 3: data-quality check — fails the DAG if the raw table is empty.
+    quality_check = BigQueryCheckOperator(
         task_id="quality_check",
-        python_callable=quality_check,
+        sql=QUALITY_SQL,
+        use_legacy_sql=False,
     )
 
-    # This line sets the ORDER: load first, then transform, then check.
-    load >> transform >> check
+    load_data >> transform_data >> quality_check
