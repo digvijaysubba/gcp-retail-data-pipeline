@@ -17,6 +17,7 @@ from airflow.providers.google.cloud.operators.bigquery import (
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import (
     GCSToBigQueryOperator,
 )
+
 # --- Project settings ---
 PROJECT_ID = "retail-pipeline-499301"
 DATASET = "retail"
