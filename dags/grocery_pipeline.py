@@ -6,6 +6,9 @@ A daily Airflow pipeline that:
   2. Rebuilds the dept_daily_sales analytics table (partitioned + clustered).
   3. Runs a data-quality check: fail the DAG if grocery_orders is empty.
 """
+
+from datetime import datetime, timezone
+
 from airflow import DAG
 from airflow.providers.google.cloud.operators.bigquery import (
     BigQueryCheckOperator,
@@ -13,6 +16,7 @@ from airflow.providers.google.cloud.operators.bigquery import (
 )
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import (
     GCSToBigQueryOperator,
+)  GCSToBigQueryOperator,
 )
 
 
