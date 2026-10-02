@@ -33,7 +33,6 @@ steps on a daily schedule. GitHub Actions (planned) provides CI/CD.
   load -> transform -> quality-check workflow on a daily schedule, running
   locally via Docker Compose.
 
-## In progress / planned
 
 - **Vertex AI RAG layer:** embeddings + Vector Search + Gemini for
   natural-language queries over the BigQuery data.
