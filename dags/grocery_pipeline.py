@@ -17,7 +17,7 @@ from airflow.providers.google.cloud.operators.bigquery import (
 from airflow.providers.google.cloud.transfers.gcs_to_bigquery import (
     GCSToBigQueryOperator,
 )  GCSToBigQueryOperator,
-)
+
 
 
 # --- Project settings ---
