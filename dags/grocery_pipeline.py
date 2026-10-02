@@ -48,7 +48,7 @@ SELECT COUNT(*) FROM `{PROJECT_ID}.{DATASET}.{RAW_TABLE}`
 with DAG(
     dag_id="grocery_pipeline",
     description="Load CSV to BigQuery, rebuild analytics table, run quality check.",
-    start_date=datetime(2026, 1, 1),
+    start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     schedule="@daily",
     catchup=False,
     tags=["grocery", "bigquery", "gcp"],
