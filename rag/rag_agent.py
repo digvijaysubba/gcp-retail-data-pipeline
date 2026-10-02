@@ -4,9 +4,9 @@
 # ChromaDB, retrieves the most relevant facts for a question, and asks
 # Gemini to answer using only those facts.
 
+import chromadb
 from google import genai
 from google.cloud import bigquery
-import chromadb
 
 PROJECT = "retail-pipeline-499301"
 LOCATION = "us-central1"
